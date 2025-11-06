@@ -1,0 +1,255 @@
+import mysql.connector
+from mysql.connector import Error
+import re
+
+def create_connection():
+    try:
+        connection = mysql.connector.connect(
+            host='localhost',
+            user='root',
+            password='',
+            database='Kilat_ipt'
+        )
+        if connection.is_connected():
+            db_info = connection.get_server_info()
+            print(f"Connected to MySQL: {db_info}")
+        return connection
+    except Error as e:
+        print(f"Error while connecting to MySQL: {e}")
+        return None
+
+def create_tables(connection):
+    try:
+        cursor = connection.cursor()
+        
+        create_resume_table_query = """
+        CREATE TABLE IF NOT EXISTS resume (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            fullname VARCHAR(255) NOT NULL,
+            email VARCHAR(255) NOT NULL,
+            address VARCHAR(255) NOT NULL,
+            phone VARCHAR(15) NOT NULL,
+            age INT NOT NULL,
+            jobtitle VARCHAR(255) NOT NULL,
+            professional_summary TEXT NOT NULL
+        );
+        """
+        
+        create_experience_table_query = """
+        CREATE TABLE IF NOT EXISTS experience (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            resume_id INT,
+            jobtitle VARCHAR(255),
+            company VARCHAR(255),
+            years INT,
+            FOREIGN KEY (resume_id) REFERENCES resume(id)
+        );
+        """
+        
+        create_education_table_query = """
+        CREATE TABLE IF NOT EXISTS education (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            resume_id INT,
+            degree VARCHAR(255),
+            institution VARCHAR(255),
+            year INT,
+            FOREIGN KEY (resume_id) REFERENCES resume(id)
+        );
+        """
+        
+        create_skills_table_query = """
+        CREATE TABLE IF NOT EXISTS skills (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            resume_id INT,
+            skill VARCHAR(255),
+            FOREIGN KEY (resume_id) REFERENCES resume(id)
+        );
+        """
+        
+        cursor.execute(create_resume_table_query)
+        cursor.execute(create_experience_table_query)
+        cursor.execute(create_education_table_query)
+        cursor.execute(create_skills_table_query)
+        
+        connection.commit()
+        print("Tables created successfully.")
+        cursor.close()
+    except Error as e:
+        print(f"Error creating tables: {e}")
+
+# Function to validate input fields
+def validate_input(prompt, data_type, required=False, regex=None, min_value=None, max_value=None):
+    while True:
+        value = input(prompt)
+        
+        if required and not value.strip():
+            print("This field is required. Please try again.")
+            continue
+        
+        if data_type == "string":
+            if regex and not re.match(regex, value):
+                print(f"Invalid format. Please follow the pattern: {regex}")
+                continue
+            return value
+        elif data_type == "int":
+            try:
+                value = int(value)
+                if min_value and value < min_value:
+                    print(f"Value must be at least {min_value}.")
+                    continue
+                if max_value and value > max_value:
+                    print(f"Value must not exceed {max_value}.")
+                    continue
+                return value
+            except ValueError:
+                print("Invalid integer input. Please try again.")
+                continue
+        else:
+            print("Invalid data type.")
+            continue
+
+# Function to insert a new resume into the database
+def insert_resume(connection):
+    print("\nEnter your resume details:")
+    
+    fullname = validate_input("Full Name: ", "string", required=True)
+    email = validate_input("Email: ", "string", required=True, regex=r"[^@]+@[^@]+\.[^@]+")
+    address = validate_input("Address: ", "string", required=True)
+    phone = validate_input("Phone (Format: (XXX) XXX-XXXX): ", "string", required=True, regex=r"\(\d{3}\)\s\d{3}-\d{4}")
+    age = validate_input("Age: ", "int", required=True, min_value=18, max_value=70)
+    jobtitle = validate_input("Job Title: ", "string", required=True)
+    professional_summary = input("Professional Summary: ")
+    
+    try:
+        cursor = connection.cursor()
+        
+        # Insert resume data into the database
+        insert_resume_query = """
+        INSERT INTO resume (fullname, email, address, phone, age, jobtitle, professional_summary)
+        VALUES (%s, %s, %s, %s, %s, %s, %s);
+        """
+        resume_data = (fullname, email, address, phone, age, jobtitle, professional_summary)
+        cursor.execute(insert_resume_query, resume_data)
+        connection.commit()
+        
+        print("\nResume added successfully.")
+        resume_id = cursor.lastrowid
+        cursor.close()
+        
+        # Insert experience, education, and skills after adding the main resume
+        insert_experience(connection, resume_id)
+        insert_education(connection, resume_id)
+        insert_skills(connection, resume_id)
+        
+    except Error as e:
+        print(f"Error inserting resume: {e}")
+
+# Function to insert experience details
+def insert_experience(connection, resume_id):
+    print("\nEnter your work experience (leave blank when done):")
+    while True:
+        jobtitle = input("Job Title: ")
+        if not jobtitle:
+            break
+        company = input("Company: ")
+        years = validate_input("Years of experience: ", "int", required=True, min_value=0)
+        
+        try:
+            cursor = connection.cursor()
+            insert_experience_query = """
+            INSERT INTO experience (resume_id, jobtitle, company, years)
+            VALUES (%s, %s, %s, %s);
+            """
+            experience_data = (resume_id, jobtitle, company, years)
+            cursor.execute(insert_experience_query, experience_data)
+            connection.commit()
+            print("Experience added.")
+        except Error as e:
+            print(f"Error inserting experience: {e}")
+        
+        cursor.close()
+
+# Function to insert education details
+def insert_education(connection, resume_id):
+    print("\nEnter your education details (leave blank when done):")
+    while True:
+        degree = input("Degree: ")
+        if not degree:
+            break
+        institution = input("Institution: ")
+        year = validate_input("Year of graduation: ", "int", required=True)
+        
+        try:
+            cursor = connection.cursor()
+            insert_education_query = """
+            INSERT INTO education (resume_id, degree, institution, year)
+            VALUES (%s, %s, %s, %s);
+            """
+            education_data = (resume_id, degree, institution, year)
+            cursor.execute(insert_education_query, education_data)
+            connection.commit()
+            print("Education added.")
+        except Error as e:
+            print(f"Error inserting education: {e}")
+        
+        cursor.close()
+
+# Function to insert skills details
+def insert_skills(connection, resume_id):
+    print("\nEnter your skills (comma separated, e.g., Python, SQL, Git):")
+    skills = input("Skills: ")
+    skills_list = [skill.strip() for skill in skills.split(",")]
+    
+    try:
+        cursor = connection.cursor()
+        for skill in skills_list:
+            insert_skills_query = """
+            INSERT INTO skills (resume_id, skill)
+            VALUES (%s, %s);
+            """
+            skills_data = (resume_id, skill)
+            cursor.execute(insert_skills_query, skills_data)
+        
+        connection.commit()
+        print("Skills added.")
+        cursor.close()
+    except Error as e:
+        print(f"Error inserting skills: {e}")
+
+# Function to retrieve and display all resumes
+def view_resumes(connection):
+    try:
+        cursor = connection.cursor()
+        
+        select_query = """
+        SELECT * FROM resume;
+        """
+        cursor.execute(select_query)
+        resumes = cursor.fetchall()
+        
+        if not resumes:
+            print("\nNo resumes found.")
+            return
+        
+        for resume in resumes:
+            print("\n---- Resume ----")
+            print(f"Full Name: {resume[1]}")
+            print(f"Email: {resume[2]}")
+            print(f"Address: {resume[3]}")
+            print(f"Phone: {resume[4]}")
+            print(f"Age: {resume[5]}")
+            print(f"Job Title: {resume[6]}")
+            print(f"Professional Summary: {resume[7]}")
+            
+            # Display related experience
+            cursor.execute(f"SELECT * FROM experience WHERE resume_id = {resume[0]}")
+            experience = cursor.fetchall()
+            if experience:
+                print("\nExperience:")
+                for exp in experience:
+                    print(f" - {exp[2]} at {exp[3]} ({exp[4]} years)")
+            
+            # Display related education
+            cursor.execute(f"SELECT * FROM education WHERE resume_id = {resume[0]}")
+            education = cursor.fetchall()
+            if education:               
